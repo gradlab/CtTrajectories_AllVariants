@@ -1,0 +1,11 @@
+parameter,mean,lwr,upr
+clearance.time.NonVariant,7.42,6.34,8.57
+clearance.time.Variant,8.01,5.89,10.66
+peak.ct.NonVariant,20.09,18.26,21.87
+peak.ct.Variant,21.62,18.58,24.64
+peak.geml.NonVariant,8.17,7.68,8.68
+peak.geml.Variant,7.75,6.91,8.59
+proliferation.time.NonVariant,4.37,3.45,5.49
+proliferation.time.Variant,3.96,2.37,6.09
+total.duration.NonVariant,11.78,10.5,13.21
+total.duration.Variant,11.97,9.4,15.09

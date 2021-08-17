@@ -10,22 +10,32 @@ source("code/set_global_pars.R")
 
 
 # Define a pared-down dataset for passing to Stan: 
+# indiv_data <- ct_dat_refined %>% 
+# 	filter(!(RowID %in% run_pars$excluded_rows)) %>%
+# 	mutate(Special=case_when(RowID %in% run_pars$special_rows~1, TRUE~0)) %>%
+# 	clean_person_id() %>%
+# 	select(PersonID, PersonIDClean, TestDateIndex, CtT1, Special) %>%
+# 	rename(id=PersonID) %>%
+# 	rename(id_clean=PersonIDClean) %>% 
+# 	rename(t=TestDateIndex) %>%
+# 	rename(y=CtT1) %>%
+# 	rename(special=Special) %>%
+# 	trim_negatives(global_pars)
 indiv_data <- ct_dat_refined %>% 
 	filter(!(RowID %in% run_pars$excluded_rows)) %>%
 	mutate(Special=case_when(RowID %in% run_pars$special_rows~1, TRUE~0)) %>%
+	mutate(id=PersonID) %>%
+	mutate(t=TestDateIndex) %>%
+	mutate(y=CtT1) %>%
+	mutate(special=Special) %>%
+	trim_negatives(global_pars) %>% 
 	clean_person_id() %>%
-	select(PersonID, PersonIDClean, TestDateIndex, CtT1, Special) %>%
-	rename(id=PersonID) %>%
-	rename(id_clean=PersonIDClean) %>% 
-	rename(t=TestDateIndex) %>%
-	rename(y=CtT1) %>%
-	rename(special=Special) %>%
-	trim_negatives(global_pars)
+	mutate(id_clean=PersonIDClean) %>% 
+	select(id, id_clean, t, y, special)
 
 # Store the number of people we've kept: 
 n_indiv <- length(unique(indiv_data$id))
 
-# Store data frame of 'special' ids: 
 special <- indiv_data %>%
 	group_by(id) %>%
 	slice(1) %>%
@@ -45,7 +55,6 @@ special_map <- indiv_data %>%
 	group_by(id) %>%
 	summarise(special=first(special))
 
-# Set parameters for the prior distributions: 
 prior_pars <- list(
 	special=special,
 	tpsd=run_pars$tpsd,
@@ -66,3 +75,9 @@ prior_pars <- list(
 	fpmean=run_pars$fpmean		# so that 90% of mass is <1 and 99% is <2
 )	
 
+if(run_pars$trapfit==1){
+	prior_pars$wxmin <- run_pars$wxmin
+	prior_pars$wxmax <- run_pars$wxmax
+	prior_pars$wxmean_prior <- run_pars$wxmean_prior
+	prior_pars$wxsd_prior <- run_pars$wxsd_prior
+}

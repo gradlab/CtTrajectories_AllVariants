@@ -1,6 +1,10 @@
 
 ggsave(fig_ct_fit, file=paste0(savedir,"ct_fit.pdf"), width=8, height=8)
 ggsave(fig_ct_fit, file=paste0(savedir,"ct_fit.png"), width=8, height=8)
+ggsave(fig_ct_fit_green, file=paste0(savedir,"ct_fit_green.pdf"), width=8, height=8)
+ggsave(fig_ct_fit_green, file=paste0(savedir,"ct_fit_green.png"), width=8, height=8)
+ggsave(fig_ct_fit_black, file=paste0(savedir,"ct_fit_black.pdf"), width=8, height=8)
+ggsave(fig_ct_fit_black, file=paste0(savedir,"ct_fit_black.png"), width=8, height=8)
 ggsave(fig_dpmean, file=paste0(savedir,"dp_mean.pdf"), width=8, height=5)
 ggsave(fig_dpmean_withprior, file=paste0(savedir,"dp_mean_withprior.pdf"), width=8, height=5)
 ggsave(fig_gemlmean, file=paste0(savedir,"geml_mean.pdf"), width=8, height=5)
@@ -17,3 +21,6 @@ ggsave(fig_ct_trajectory_inference, file=paste0(savedir,"ct_trajectory_inference
 ggsave(fig_indiv_trajectories, file=paste0(savedir,"indiv_trajectories.pdf"), width=8, height=5)
 ggsave(fig_indiv_trajectories, file=paste0(savedir,"indiv_trajectories.png"), width=8, height=5)
 ggsave(fig_indiv_trajectories_green, file=paste0(savedir,"indiv_trajectories_green.png"), width=8, height=5)
+
+# ggsave(fig_ct_trajectory_inference_geml, file=paste0(savedir,"ct_trajectory_inference_geml.pdf"), width=8, height=5)
+# ggsave(fig_raw_trajectories, file=paste0(savedir,"raw_trajectories.pdf"), width=8, height=5)

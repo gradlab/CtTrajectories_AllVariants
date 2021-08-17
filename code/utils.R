@@ -1,6 +1,5 @@
 library(tidyverse) 
 
-# Re-assign Person IDs as a running index of 1:npeople
 clean_person_id <- function(ct_dat){
 	id_list <- sort(unique(ct_dat$PersonID))
 	id_df <- data.frame(PersonID=id_list, PersonIDClean=1:length(id_list), stringsAsFactors=FALSE)
@@ -8,14 +7,50 @@ clean_person_id <- function(ct_dat){
 	return(out)
 }
 
-# Script for saving ggplot output stored in lists
 save_figlist <- function(obj,dir,name,driver,width=8,height=5){
 	mapply(function(x,y) ggsave(x,
 		file=paste0(dir,name,"_",y,".",driver), width=width, height=height),
 	obj,1:length(obj))
 }
 
-# Converts raw test dates to elapsed days since peak Ct:
+
+# ct_dat %>% 
+# 	filter(Lineage!="None") %>% 
+# 	group_by(PersonID) %>% 
+# 	summarise(nl=n_distinct(Lineage)) %>% 
+# 	arrange(desc(nl))
+
+propagate_lineage <- function(ct_dat){
+	# Error control: 
+	linreps <- ct_dat %>% 
+		filter(Lineage!="None") %>% 
+		group_by(PersonID) %>% 
+		summarise(nl=n_distinct(Lineage)) %>% 
+		arrange(desc(nl))
+
+	maxlinreps <- max(linreps$nl) 
+	if(maxlinreps>1){
+		print("Error: some people have multiple lineages")
+		return(NA)
+	}
+
+	# Propagate lineages: 
+	linjoin <- ct_dat %>% 
+		mutate(Lineage=case_when(Lineage=="None"~"ZZZNone", TRUE~Lineage)) %>% 
+		group_by(PersonID) %>% 
+		arrange(Lineage) %>% 
+		select(PersonID, Lineage) %>% 
+		slice(1) %>% 
+		mutate(Lineage=case_when(Lineage=="ZZZNone"~"None", TRUE~Lineage)) 
+
+	out <- ct_dat %>% 
+		select(-Lineage) %>% 
+		left_join(linjoin)
+
+	return(out) 
+}
+
+# filter(temp, PersonID==1717) %>% select(PersonID, Lineage)
 make_test_date_index <- function(ct_dat){
 	minctdf <- ct_dat %>% 
 		arrange(PersonID, TestDate) %>%
@@ -34,7 +69,23 @@ make_test_date_index <- function(ct_dat){
 	return(out)
 }
 
-# Trims consecutive sequences of 3 or more test results at the limit of detection: 
+# trim_negatives <- function(indiv_data, global_pars){
+# 	# lod <- 40
+# 	out <- indiv_data %>% 
+# 		split(.$id) %>% 
+# 		map(~ arrange(., t)) %>% 
+# 		map(~ mutate(., rowindex=1:n())) %>% 
+# 		map(~ mutate(., ispositive=case_when(y<global_pars[["lod"]] ~ 1, TRUE~0))) %>% 
+# 		map(~ mutate(., ispositive_lag=lag(ispositive))) %>%
+# 		map(~ mutate(., ispositive_lag2=lag(ispositive,2))) %>%
+# 		map(~ mutate(., ispositive_lead=lead(ispositive))) %>%
+# 		map(~ mutate(., ispositive_lead2=lead(ispositive,2))) %>%
+# 		map(~ filter(., ispositive==1 | ispositive_lag==1 | ispositive_lag2==1 | ispositive_lead==1 | ispositive_lead2==1)) %>%
+# 		map(~ select(., id, id_clean, t, y, special)) %>%
+# 		bind_rows()
+# 	return(out)
+# }
+
 trim_negatives <- function(indiv_data, global_pars){
 	# lod <- 40
 	out <- indiv_data %>% 
@@ -47,12 +98,11 @@ trim_negatives <- function(indiv_data, global_pars){
 		map(~ mutate(., ispositive_lead=lead(ispositive))) %>%
 		map(~ mutate(., ispositive_lead2=lead(ispositive,2))) %>%
 		map(~ filter(., ispositive==1 | ispositive_lag==1 | ispositive_lag2==1 | ispositive_lead==1 | ispositive_lead2==1)) %>%
-		map(~ select(., id, id_clean, t, y, special)) %>%
+		map(~ select(., -rowindex, -ispositive, -ispositive_lag, -ispositive_lag2, -ispositive_lead, -ispositive_lead2)) %>%
 		bind_rows()
 	return(out)
 }
 
-# Laaunch shinystan without blocking the console: 
 launch_shinystan_nonblocking <- function(fit) {
   library(future)
   plan(multisession)
@@ -61,7 +111,6 @@ launch_shinystan_nonblocking <- function(fit) {
   )
 }
 
-# Like dplyr's sample_n, but sampling by group instead of by row: 
 sample_n_groups <- function(grouped_df, size, replace=FALSE, weight=NULL){
 	# From https://cmdlinetips.com/2019/07/how-to-randomly-select-groups-in-r-with-dplyr/
 	grp_var <- grouped_df %>% 
@@ -90,7 +139,6 @@ parseparam <- function(extracted_params, parname, n_indiv){
 	as_tibble(setNames(as.data.frame(extracted_params[[parname]]), makenames(parname,n_indiv)))
 }
 
-# For collecting MCMC output into a useful data frame
 make_params_df <- function(extracted_params, parnames, n_indiv){
 	# Use "reduce" here
 	out <- reduce(lapply(parnames, function(x) parseparam(extracted_params,x,n_indiv)), cbind) %>% 
@@ -102,7 +150,6 @@ make_params_df <- function(extracted_params, parnames, n_indiv){
 		select(-iteration) 
 }
 
-# For collecting MCMC output into a useful data frame (individual-level parameters)
 make_indiv_params_df <- function(extracted_params, parnames, n_indiv){
 	# Use "reduce" here
 	out <- reduce(lapply(parnames, function(x) parseparam(extracted_params,x,n_indiv)), cbind) %>% 
@@ -113,7 +160,6 @@ make_indiv_params_df <- function(extracted_params, parnames, n_indiv){
 		pivot_wider(c("id","iteration"), names_from="param", values_from="value")
 }
 
-# For collecting MCMC output into a useful data frame (shared parameters)
 make_shared_params_df <- function(extracted_params, parnames){
 	# Use "reduce" here
 	out <- reduce(lapply(parnames, function(x) 
@@ -123,8 +169,7 @@ make_shared_params_df <- function(extracted_params, parnames){
 		mutate(iteration=1:n())
 }
 
-# Plot individual-level fitted Ct trajectories for everyone, with raw data: 
-plot_ct_fit <- function(params_df, global_pars, indiv_data, ctalpha=0.01, ntraces=100){
+plot_ct_fit <- function(params_df, global_pars, indiv_data, ctalpha=0.01,specialcol="red", basecol="blue", xlim=c(NA,NA), vlabel="Variant", nvlabel="Non-Variant",ntraces=100){
 	with(as.list(global_pars),{
 	params_df %>% 
 		mutate(id_clean=as.integer(id_clean)) %>%
@@ -139,35 +184,219 @@ plot_ct_fit <- function(params_df, global_pars, indiv_data, ctalpha=0.01, ntrace
 			geom_segment(aes(x=tp+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
 			# Plot data:
 			geom_point(data=indiv_data, aes(x=t, y=y,col=factor(special)), size=0.5) + 
-			scale_color_manual(values=c("1"="red","0"="blue"), labels=c("1"="Variant","0"="Non-variant")) + 
+			scale_color_manual(values=c("1"=specialcol,"0"=basecol), labels=c("1"=vlabel,"0"=nvlabel)) + 
 			theme_minimal() + 
 			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8)) + 
 			labs(x="Time since min Ct (days)", y="Ct") + 
 			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+			scale_x_continuous(limits=xlim) + 
 			facet_wrap(~id) # Change to id_clean to obscure identities
 			})
 }
 
-# Turn off the background grid:
+
+plot_ct_fit_split <- function(params_df, global_pars, indiv_data, ctalpha=0.01,specialcol="red", basecol="blue", xlim=c(NA,NA), vlabel="Variant", nvlabel="Non-Variant",nsplits=4,shade_ids=c(),ntraces=100){
+	with(as.list(global_pars),{
+
+	shade_df <- tibble(id=sort(unique(params_df$id))) %>% 
+		mutate(shade=case_when(id %in% shade_ids~"Yes", TRUE~"No"))
+
+	params_df <- params_df %>% 
+		mutate(id_clean=as.integer(id_clean)) %>%
+		mutate(splitval=ceiling((id_clean)/(max(id_clean)/nsplits)))
+
+	splitmap <- params_df %>% 
+		group_by(id) %>% 
+		summarise(splitval=first(splitval)) 
+
+	indiv_data_split <- indiv_data %>% 
+		left_join(splitmap,by="id") %>% 
+		split(.$splitval)
+
+	shade_df_split <- shade_df %>% 
+		left_join(splitmap,by="id") %>% 
+		split(.$splitval)
+
+
+	params_df %>% 
+		split(.$splitval) %>% 
+		map(~ group_by(.,id_clean)) %>%
+		map(~ sample_n(.,ntraces)) %>% 
+		map(~ ungroup(.)) %>%
+		imap(~ ggplot(.x) + 
+			# Plot traces:
+			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wr, yend=lod), alpha=ctalpha) + 
+			geom_segment(aes(x=tp+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+			# Plot data:
+			geom_point(data=indiv_data_split[[.y]], aes(x=t, y=y,col=factor(special)), size=0.5) + 
+			scale_color_manual(values=c("1"=specialcol,"0"=basecol), labels=c("1"=vlabel,"0"=nvlabel)) + 
+			theme_minimal() + 
+			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8)) + 
+			labs(x="Time since min Ct (days)", y="Ct") + 
+			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+			scale_x_continuous(limits=xlim) + 
+			geom_rect(data=shade_df_split[[.y]],aes(fill=shade),xmin=-Inf, ymin=-Inf, xmax=Inf, ymax=Inf, col="white", alpha=0.2) + 
+			scale_fill_manual(values=c("Yes"="Gray","No"="White"), guide="none") + 
+			facet_wrap(~id)) # Change to id_clean to obscure identities
+			})
+}
+
+
+plot_ct_fit_trap <- function(params_df, global_pars, indiv_data, ctalpha=0.01, specialcol="red", xlim=c(NA,NA), ntraces=100){
+	with(as.list(global_pars),{
+	params_df %>% 
+		mutate(id_clean=as.integer(id_clean)) %>%
+		group_by(id_clean) %>%
+		sample_n(ntraces) %>% 
+		ungroup() %>%
+		ggplot() + 
+			# Plot traces:
+			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wx, yend=lod-dp), alpha=ctalpha) + 
+			geom_segment(aes(x=tp+wx, y=lod-dp, xend=tp+wx+wr, yend=lod), alpha=ctalpha) + 
+			geom_segment(aes(x=tp+wx+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+			# Plot data:
+			geom_point(data=indiv_data, aes(x=t, y=y,col=factor(special)), size=0.5) + 
+			scale_color_manual(values=c("1"=specialcol,"0"="blue"), labels=c("1"="Variant","0"="Non-variant")) + 
+			theme_minimal() + 
+			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8)) + 
+			labs(x="Time since min Ct (days)", y="Ct") + 
+			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+			scale_x_continuous(limits=xlim) + 
+			facet_wrap(~id) # Change to id_clean to obscure identities
+			})
+}
+
+# plot_ct_fit_b117_trap_rawid <- function(params_df, global_pars, indiv_data, ctalpha=0.01, ntraces=100){
+# 	with(as.list(global_pars),{
+# 	params_df %>% 
+# 		filter(id==3229) %>%
+# 		mutate(id=as.integer(id)) %>%
+# 		group_by(id) %>%
+# 		sample_n(ntraces) %>% 
+# 		ungroup() %>%
+# 		ggplot() + 
+# 			# Plot traces:
+# 			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wx, yend=lod-dp), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp+wx, y=lod-dp, xend=tp+wx+wr, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp+wx+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+# 			# Plot data:
+# 			geom_point(data=filter(indiv_data, id=="3229"), aes(x=t, y=y, col=factor(b117)), size=0.5) + 
+# 			scale_color_manual(values=c("1"="red","0"="blue"), labels=c("1"="B117","0"="non-B117")) + 
+# 			theme_minimal() + 
+# 			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8)) + 
+# 			labs(x="Time since min Ct (days)", y="Ct") + 
+# 			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+# 			# scale_x_continuous(limits=c(-7,14)) + 
+# 			facet_wrap(~id)
+# 			})
+# }
+
+# plot_ct_fit_b117_fulldata <- function(params_df, global_pars, ct_dat_refined, ctalpha=0.01, ntraces=100){
+# 	with(as.list(global_pars),{
+# 	params_df %>% 
+# 		mutate(id_clean=as.integer(id_clean)) %>%
+# 		group_by(id_clean) %>%
+# 		sample_n(ntraces) %>% 
+# 		ungroup() %>%
+# 		ggplot() + 
+# 			# Plot traces:
+# 			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wr, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+# 			# Plot data:
+# 			geom_point(data=mutate(ct_dat_refined,id_clean=as.integer(PersonIDClean)), aes(x=TestDateIndex, y=CtT1,col=factor(B117Status)), size=0.5) + 
+# 			scale_color_manual(values=c("1"="red","0"="blue","Yes"="red","No"="blue"), labels=c("1"="B117","0"="non-B117","Yes"="B117","No"="non-B117")) + 
+# 			theme_minimal() + 
+# 			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8)) + 
+# 			labs(x="Time since min Ct (days)", y="Ct") + 
+# 			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+# 			facet_wrap(~id_clean)
+# 			})
+# }
+
+# plot_ct_fit_b117_noid <- function(params_df, global_pars, indiv_data, ctalpha=0.01, ntraces=100){
+# 	with(as.list(global_pars),{
+# 	params_df %>% 
+# 		mutate(id_clean=as.integer(id_clean)) %>%
+# 		group_by(id_clean) %>%
+# 		sample_n(ntraces) %>% 
+# 		ungroup() %>%
+# 		ggplot() + 
+# 			# Plot traces:
+# 			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wr, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+# 			# Plot data:
+# 			geom_point(data=indiv_data, aes(x=t, y=y,col=factor(b117)), size=0.5) + 
+# 			scale_color_manual(values=c("1"="red","0"="blue"), labels=c("1"="B117","0"="non-B117")) + 
+# 			theme_minimal() + 
+# 			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8), strip.text.x=element_blank()) + 
+# 			labs(x="Time since min Ct (days)", y="Ct") + 
+# 			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+# 			facet_wrap(~b117+id_clean)
+# 			})
+# }
+
+# plot_ct_fit_b117_fulldata_noid <- function(params_df, global_pars, ct_dat_refined, ctalpha=0.01, ntraces=100){
+# 	with(as.list(global_pars),{
+# 	params_df %>% 
+# 		mutate(id_clean=as.integer(id_clean)) %>%
+# 		group_by(id_clean) %>%
+# 		sample_n(ntraces) %>% 
+# 		ungroup() %>%
+# 		ggplot() + 
+# 			# Plot traces:
+# 			geom_segment(aes(x=-Inf, y=lod, xend=tp-wp, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp-wp, y=lod, xend=tp, yend=lod-dp), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp, y=lod-dp, xend=tp+wr, yend=lod), alpha=ctalpha) + 
+# 			geom_segment(aes(x=tp+wr, y=lod, xend=Inf, yend=lod), alpha=ctalpha) + 
+# 			# Plot data:
+# 			geom_point(data=mutate(ct_dat_refined,
+# 				id_clean=as.integer(PersonIDClean),
+# 				b117=case_when(B117Status=="Yes"~1, TRUE~0)), aes(x=TestDateIndex, y=CtT1,col=factor(B117Status)), size=0.5) + 
+# 			scale_color_manual(values=c("1"="red","0"="blue","Yes"="red","No"="blue"), labels=c("1"="B117","0"="non-B117","Yes"="B117","No"="non-B117")) + 
+# 			theme_minimal() + 
+# 			theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank(), legend.title=element_blank(), axis.text.x=element_text(angle=90, hjust=1, vjust=0.5, size=8), axis.text.y=element_text(size=8), strip.text.x=element_blank()) + 
+# 			labs(x="Time since min Ct (days)", y="Ct") + 
+# 			scale_y_reverse(breaks=c(40,30,20,10), labels=c("(-)","30","20","10"), sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + 
+# 			facet_wrap(~b117+id_clean)
+# 			})
+# }
+
 grid_off <- list(theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank()))
 
-# Turn off y ticks:
 y_ticks_off <- list(theme(axis.ticks.y=element_blank(),axis.text.y=element_blank()))
 
-# Convert Ct values to RNA copies per ml:
 convert_Ct_logGEML <- function(Ct, m_conv=-3.609714286, b_conv=40.93733333){
 	out <- (Ct-b_conv)/m_conv * log10(10) + log10(250)
 	return(out) 
 }
 
-# Function used for plotting mean proliferation envelope:
 srise <- function(x, dp, wp){
 	out <- dp*(1+x/wp)
 	return(out)
 }
-# Function used for plotting mean clearance envelope:
 sfall <- function(x, dp, wr){
 	out <- dp*(1-x/wr)
+	return(out)
+}
+
+sfall_trap <- function(x, dp, wx, wr){
+	out <- -dp/wr*x + dp*(wx/wr + 1)
+	out[x <= wx] <- dp[x <= wx]
+	# if(x <= wx){
+	# 	out <- dp
+	# 	} else {
+	# 	out <- -dp/wr*x + dp*(wx/wr + 1)
+	# 	}
 	return(out)
 }
 
@@ -311,7 +540,260 @@ make_sample_trajectory_special <- function(shared_params_df, global_pars, siglev
 
 }
 
-# For plotting a normal prior distribution: 
+
+make_sample_trajectory_special_trap <- function(shared_params_df, global_pars, siglevel=0.9, ge=FALSE, referencefill="blue", specialfill="red"){
+	# For asymptomatic:
+	with(as.list(global_pars),{
+
+	shared_params_df <- shared_params_df %>% 
+		select(-dpmeanW, -dpmeanB, -wpmeanW, -wpmeanB, -wxmeanW, -wxmeanB, -wrmeanW, -wrmeanB) %>%
+		rename(dpmeanW=dpmeanW_trans,
+		dpmeanB=dpmeanB_trans,
+		wpmeanW=wpmeanW_trans,
+		wpmeanB=wpmeanB_trans,
+		wxmeanW=wxmeanW_trans,
+		wxmeanB=wxmeanB_trans,
+		wrmeanW=wrmeanW_trans,
+		wrmeanB=wrmeanB_trans)
+
+	wp_mean_W <- mean(shared_params_df$wpmeanW)
+	wp_lwr_W <- quantile(shared_params_df$wpmeanW,(1-siglevel)/2)
+	wp_upr_W <- quantile(shared_params_df$wpmeanW,1-(1-siglevel)/2)
+
+	wx_mean_W <- mean(shared_params_df$wxmeanW)
+	wx_lwr_W <- quantile(shared_params_df$wxmeanW,(1-siglevel)/2)
+	wx_upr_W <- quantile(shared_params_df$wxmeanW,1-(1-siglevel)/2)
+
+	wr_mean_W <- mean(shared_params_df$wrmeanW)
+	wr_lwr_W <- quantile(shared_params_df$wrmeanW,(1-siglevel)/2)
+	wr_upr_W <- quantile(shared_params_df$wrmeanW,1-(1-siglevel)/2)
+
+	dp_mean_W <- mean(shared_params_df$dpmeanW)
+	dp_lwr_W <- quantile(shared_params_df$dpmeanW,(1-siglevel)/2)
+	dp_upr_W <- quantile(shared_params_df$dpmeanW,1-(1-siglevel)/2)
+
+	xvals_proliferation_W <- seq(from=-wp_upr_W, 0, length.out=500)
+	# xvals_plateau_W <- seq(from=0, wx_upr_W, length.out=500)
+	xvals_clearance_W <- seq(from=0, wx_upr_W+wr_upr_W, length.out=500)
+
+	yvals_upr_proliferation_W <- unlist(lapply(xvals_proliferation_W, 
+	function(x) quantile(srise(x, shared_params_df$dpmeanW, shared_params_df$wpmeanW),1-(1-siglevel)/2)))
+	yvals_lwr_proliferation_W <- unlist(lapply(xvals_proliferation_W, 
+	function(x) quantile(srise(x, shared_params_df$dpmeanW, shared_params_df$wpmeanW),(1-siglevel)/2)))
+	# yvals_upr_plateau_W <- rep(dp_upr_W, length(xvals_plateau_W))
+	# yvals_lwr_plateau_W <- rep(dp_lwr_W, length(xvals_plateau_W))
+	yvals_upr_clearance_W <- unlist(lapply(xvals_clearance_W, 
+	function(x) quantile(sfall_trap(x, shared_params_df$dpmeanW, shared_params_df$wxmeanW, shared_params_df$wrmeanW),1-(1-siglevel)/2)))
+	yvals_lwr_clearance_W <- unlist(lapply(xvals_clearance_W, 
+	function(x) quantile(sfall_trap(x, shared_params_df$dpmeanW, shared_params_df$wxmeanW, shared_params_df$wrmeanW),(1-siglevel)/2)))
+
+	# For symptomatic:
+	wp_mean_B <- mean(shared_params_df$wpmeanB)
+	wp_lwr_B <- quantile(shared_params_df$wpmeanB,(1-siglevel)/2)
+	wp_upr_B <- quantile(shared_params_df$wpmeanB,1-(1-siglevel)/2)
+
+	wx_mean_B <- mean(shared_params_df$wxmeanB)
+	wx_lwr_B <- quantile(shared_params_df$wxmeanB,(1-siglevel)/2)
+	wx_upr_B <- quantile(shared_params_df$wxmeanB,1-(1-siglevel)/2)
+
+	wr_mean_B <- mean(shared_params_df$wrmeanB)
+	wr_lwr_B <- quantile(shared_params_df$wrmeanB,(1-siglevel)/2)
+	wr_upr_B <- quantile(shared_params_df$wrmeanB,1-(1-siglevel)/2)
+
+	dp_mean_B <- mean(shared_params_df$dpmeanB)
+	dp_lwr_B <- quantile(shared_params_df$dpmeanB,(1-siglevel)/2)
+	dp_upr_B <- quantile(shared_params_df$dpmeanB,1-(1-siglevel)/2)
+
+	xvals_proliferation_B <- seq(from=-wp_upr_B, 0, length.out=500)
+	# xvals_plateau_B <- seq(from=0, wx_upr_B, length.out=500)
+	xvals_clearance_B <- seq(from=0, wx_upr_B+wr_upr_B, length.out=500)
+
+	yvals_upr_proliferation_B <- unlist(lapply(xvals_proliferation_B, 
+	function(x) quantile(srise(x, shared_params_df$dpmeanB, shared_params_df$wpmeanB),1-(1-siglevel)/2)))
+	yvals_lwr_proliferation_B <- unlist(lapply(xvals_proliferation_B, 
+	function(x) quantile(srise(x, shared_params_df$dpmeanB, shared_params_df$wpmeanB),(1-siglevel)/2)))
+	# yvals_upr_plateau_B <- rep(dp_upr_B, length(xvals_plateau_B))
+	# yvals_lwr_plateau_B <- rep(dp_lwr_B, length(xvals_plateau_B))
+	yvals_upr_clearance_B <- unlist(lapply(xvals_clearance_B, 
+	function(x) quantile(sfall_trap(x, shared_params_df$dpmeanB, shared_params_df$wxmeanB, shared_params_df$wrmeanB),1-(1-siglevel)/2)))
+	yvals_lwr_clearance_B <- unlist(lapply(xvals_clearance_B, 
+	function(x) quantile(sfall_trap(x, shared_params_df$dpmeanB, shared_params_df$wxmeanB, shared_params_df$wrmeanB),(1-siglevel)/2)))
+
+	if(ge==FALSE){
+		out <- ggplot() + 
+			# Proliferation: ---
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_proliferation_W, 
+					yvals_lwr=yvals_lwr_proliferation_W, 
+					yvals_upr=yvals_upr_proliferation_W),
+				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=referencefill) + 
+			geom_segment(aes(x=-wp_mean_W,xend=0,y=lod,yend=lod-dp_mean_W),col=referencefill) + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_proliferation_B, 
+					yvals_lwr=yvals_lwr_proliferation_B, 
+					yvals_upr=yvals_upr_proliferation_B),
+				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=specialfill) + 
+			geom_segment(aes(x=-wp_mean_B,xend=0,y=lod,yend=lod-dp_mean_B),col=specialfill) + 
+			# Plateau: ---
+			# geom_ribbon(
+			# 	data=tibble(
+			# 		xvals=xvals_plateau_W, 
+			# 		yvals_lwr=yvals_lwr_plateau_W, 
+			# 		yvals_upr=yvals_upr_plateau_W),
+			# 	aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=referencefill) + 
+			geom_segment(aes(x=0,xend=wx_mean_W,y=lod-dp_mean_W,yend=lod-dp_mean_W),col=referencefill) + 
+			# geom_ribbon(
+			# 	data=tibble(
+			# 		xvals=xvals_plateau_B, 
+			# 		yvals_lwr=yvals_lwr_plateau_B, 
+			# 		yvals_upr=yvals_upr_plateau_B),
+			# 	aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=specialfill) + 
+			geom_segment(aes(x=0,xend=wx_mean_B,y=lod-dp_mean_B,yend=lod-dp_mean_B),col=specialfill) + 
+			# Clearance: ---
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_clearance_W, 
+					yvals_lwr=yvals_lwr_clearance_W, 
+					yvals_upr=yvals_upr_clearance_W),
+				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=referencefill) + 
+			geom_segment(aes(x=wx_mean_W,xend=wx_mean_W+wr_mean_W,y=lod-dp_mean_W,yend=lod),col=referencefill) + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_clearance_B, 
+					yvals_lwr=yvals_lwr_clearance_B, 
+					yvals_upr=yvals_upr_clearance_B),
+				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill=specialfill) + 
+			geom_segment(aes(x=wx_mean_B,xend=wx_mean_B+wr_mean_B,y=lod-dp_mean_B,yend=lod),col=specialfill) + 
+			# Plot options: ---
+			coord_cartesian(ylim=c(40,15), expand=FALSE) + 
+			theme_minimal() + 
+			labs(x="Days from peak", y="Ct") + 
+			scale_y_reverse(sec.axis=sec_axis(~convert_Ct_logGEML(.), name=expression(log[10]~RNA~copies/ml))) + # "log"["10"]" RNA copies/ml"
+			theme(text=element_text(size=18))
+	} else {
+		out <- ggplot() + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_proliferation_W, 
+					yvals_lwr=(yvals_lwr_proliferation_W), 
+					yvals_upr=(yvals_upr_proliferation_W)),
+				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill=referencefill) + 
+			geom_segment(aes(x=-wp_mean_W,xend=0,y=10^convert_Ct_logGEML(lod),yend=10^convert_Ct_logGEML(lod-dp_mean_W)),col=referencefill) + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_proliferation_B, 
+					yvals_lwr=(yvals_lwr_proliferation_B), 
+					yvals_upr=(yvals_upr_proliferation_B)),
+				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill=specialfill) + 
+			geom_segment(aes(x=-wp_mean_B,xend=0,y=10^convert_Ct_logGEML(lod),yend=10^convert_Ct_logGEML(lod-dp_mean_B)),col=specialfill) + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_clearance_W, 
+					yvals_lwr=(yvals_lwr_clearance_W), 
+					yvals_upr=(yvals_upr_clearance_W)),
+				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill=referencefill) + 
+			geom_segment(aes(x=0,xend=wr_mean_W,y=10^convert_Ct_logGEML(lod-dp_mean_W),yend=10^convert_Ct_logGEML(lod)),col=referencefill) + 
+			geom_ribbon(
+				data=tibble(
+					xvals=xvals_clearance_B, 
+					yvals_lwr=(yvals_lwr_clearance_B), 
+					yvals_upr=(yvals_upr_clearance_B)),
+				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill=specialfill) + 
+			geom_segment(aes(x=0,xend=wr_mean_B,y=10^convert_Ct_logGEML(lod-dp_mean_B),yend=10^convert_Ct_logGEML(lod)),col=specialfill) + 
+			coord_cartesian(ylim=c(10^convert_Ct_logGEML(40),10^convert_Ct_logGEML(15)), expand=FALSE) + 
+			theme_minimal() + 
+			labs(x="Days from peak", y="RNA copies per ml") + 
+			scale_y_continuous(trans='log10', labels = trans_format("log10", math_format(10^.x))) + 
+			theme(text=element_text(size=18))
+	}
+
+	return(out)
+
+	})
+
+}
+
+# make_sample_trajectory_wtonly <- function(shared_params_df, global_pars, siglevel=0.9, ge=FALSE){
+# 	# For asymptomatic:
+# 	with(as.list(global_pars),{
+
+# 	wp_mean_W <- mean(shared_params_df$wpmeanW)
+# 	wp_lwr_W <- quantile(shared_params_df$wpmeanW,(1-siglevel)/2)
+# 	wp_upr_W <- quantile(shared_params_df$wpmeanW,1-(1-siglevel)/2)
+
+# 	wr_mean_W <- mean(shared_params_df$wrmeanW)
+# 	wr_lwr_W <- quantile(shared_params_df$wrmeanW,(1-siglevel)/2)
+# 	wr_upr_W <- quantile(shared_params_df$wrmeanW,1-(1-siglevel)/2)
+
+# 	dp_mean_W <- mean(shared_params_df$dpmeanW)
+# 	dp_lwr_W <- quantile(shared_params_df$dpmeanW,(1-siglevel)/2)
+# 	dp_upr_W <- quantile(shared_params_df$dpmeanW,1-(1-siglevel)/2)
+
+# 	xvals_proliferation_W <- seq(from=-wp_upr_W, 0, length.out=500)
+# 	xvals_clearance_W <- seq(from=0, wr_upr_W, length.out=500)
+
+# 	yvals_upr_proliferation_W <- unlist(lapply(xvals_proliferation_W, 
+# 	function(x) quantile(srise(x, shared_params_df$dpmeanW, shared_params_df$wpmeanW),1-(1-siglevel)/2)))
+# 	yvals_lwr_proliferation_W <- unlist(lapply(xvals_proliferation_W, 
+# 	function(x) quantile(srise(x, shared_params_df$dpmeanW, shared_params_df$wpmeanW),(1-siglevel)/2)))
+# 	yvals_upr_clearance_W <- unlist(lapply(xvals_clearance_W, 
+# 	function(x) quantile(sfall(x, shared_params_df$dpmeanW, shared_params_df$wrmeanW),1-(1-siglevel)/2)))
+# 	yvals_lwr_clearance_W <- unlist(lapply(xvals_clearance_W, 
+# 	function(x) quantile(sfall(x, shared_params_df$dpmeanW, shared_params_df$wrmeanW),(1-siglevel)/2)))
+
+
+# 	if(ge==FALSE){
+# 		out <- ggplot() + 
+# 			geom_ribbon(
+# 				data=tibble(
+# 					xvals=xvals_proliferation_W, 
+# 					yvals_lwr=yvals_lwr_proliferation_W, 
+# 					yvals_upr=yvals_upr_proliferation_W),
+# 				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill="blue") + 
+# 			geom_segment(aes(x=-wp_mean_W,xend=0,y=lod,yend=lod-dp_mean_W),col="blue") + 
+# 			geom_ribbon(
+# 				data=tibble(
+# 					xvals=xvals_clearance_W, 
+# 					yvals_lwr=yvals_lwr_clearance_W, 
+# 					yvals_upr=yvals_upr_clearance_W),
+# 				aes(x=xvals, ymin=lod-yvals_lwr, ymax=lod-yvals_upr), alpha=0.2, fill="blue") + 
+# 			geom_segment(aes(x=0,xend=wr_mean_W,y=lod-dp_mean_W,yend=lod),col="blue") + 
+# 			coord_cartesian(ylim=c(40,15), expand=FALSE) + 
+# 			theme_minimal() + 
+# 			labs(x="Days from peak", y="Ct") + 
+# 			scale_y_reverse() + 
+# 			theme(text=element_text(size=18))
+# 	} else {
+# 		out <- ggplot() + 
+# 			geom_ribbon(
+# 				data=tibble(
+# 					xvals=xvals_proliferation_W, 
+# 					yvals_lwr=(yvals_lwr_proliferation_W), 
+# 					yvals_upr=(yvals_upr_proliferation_W)),
+# 				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill="blue") + 
+# 			geom_segment(aes(x=-wp_mean_W,xend=0,y=10^convert_Ct_logGEML(lod),yend=10^convert_Ct_logGEML(lod-dp_mean_W)),col="blue") + 
+# 			geom_ribbon(
+# 				data=tibble(
+# 					xvals=xvals_clearance_W, 
+# 					yvals_lwr=(yvals_lwr_clearance_W), 
+# 					yvals_upr=(yvals_upr_clearance_W)),
+# 				aes(x=xvals, ymin=10^convert_Ct_logGEML(lod-yvals_lwr), ymax=10^convert_Ct_logGEML(lod-yvals_upr)), alpha=0.2, fill="blue") + 
+# 			geom_segment(aes(x=0,xend=wr_mean_W,y=10^convert_Ct_logGEML(lod-dp_mean_W),yend=10^convert_Ct_logGEML(lod)),col="blue") + 
+# 			coord_cartesian(ylim=c(10^convert_Ct_logGEML(40),10^convert_Ct_logGEML(15)), expand=FALSE) + 
+# 			theme_minimal() + 
+# 			labs(x="Days from peak", y="RNA copies per ml") + 
+# 			scale_y_continuous(trans='log10', labels = trans_format("log10", math_format(10^.x))) + 
+# 			theme(text=element_text(size=18))
+# 	}
+
+# 	return(out)
+
+# 	})
+
+# }
+
 make_normal_prior_df <- function(mean, sd, pmin, pmax, step){
 	xmin <- qnorm(pmin, mean=mean, sd=sd)
 	xmax <- qnorm(pmax, mean=mean, sd=sd)
@@ -322,7 +804,7 @@ make_normal_prior_df <- function(mean, sd, pmin, pmax, step){
 	return(out)
 }
 
-# For truncating the normal distribution within the bounds specified in the MCMC fit: 
+
 truncnormmean <- function(mu, sigma, T0, T1){
 	alpha <- (T0 - mu)/sigma
 	beta <- (T1 - mu)/sigma

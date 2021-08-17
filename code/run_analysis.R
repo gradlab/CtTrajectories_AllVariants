@@ -14,7 +14,7 @@ source("code/set_global_pars.R")
 ct_dat_refined <- read_csv("data/ct_dat_refined.csv")
 source("code/set_run_pars.R")
 
-for(run_pars_index in c(1,3)){ # 1:length(run_pars_list)
+for(run_pars_index in 1:length(run_pars_list)){ # 1:length(run_pars_list)
 
 	run_pars <- run_pars_list[[run_pars_index]]
 
@@ -41,7 +41,13 @@ for(run_pars_index in c(1,3)){ # 1:length(run_pars_list)
 
 }
 
-source("code/make_figures_overall.R")
+# Make figures that incorporate data from multiple runs
+# source("code/make_figures_overall_withvax.R")
+# source("code/save_figures_overall_withvax.R")
+# Make figures for delta vaccination:
+# source("code/makewhiskers_deltavax.R")
+# Make figures by vaccine manufacturer:
+# source("code/makewhiskers_vaxman.R")
 
 # =============================================================================
 # Post-hoc figure making
