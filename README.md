@@ -1,5 +1,5 @@
-# Data and code associated with "Densely sampled viral trajectories for SARS-CoV-2 variants B.1.1.7 and B.1.429"
-S.M. Kissler`*`, J.R. Fauver`*`, C. Mack`*`, C. Tai, M. Breban, A. Watkins, R.M. Samant, D.J. Anderson, D.D. Ho, N. Grubaugh`+`, Y.H. Grad`+`
+# Data and code associated with "Viral dynamics of SARS-CoV-2 variants in vaccinated and unvaccinated individuals"
+S.M. Kissler`*`, J.R. Fauver`*`, C. Mack`*`, C.G. Tai, M. Breban, A. Watkins, R.M. Samant, D.J. Anderson, J. Metti, G. Khullar, R. Baits, M. Mackay, D. Salgado, T. Baker, J.T. Dudley, C.E. Mason, D.D. Ho, N. Grubaugh`+`, Y.H. Grad`+`
 
 `*` denotes equal contribution
 
@@ -35,7 +35,13 @@ __save_figures.R__ writes the figures to .pdf or .png. The directory for saving 
 
 __diagnose_fit.R__ stores key diagnostics from the MCMC fit, including the Gelman Rhat statistic and the number of divergent transitions. 
 
-__make_figures_overall.R__ generates figures comparing fits from across runs (currently set to compare B.1.1.7 trajectories and B.1.429 trajectories against non-VOI/VOC trajectories). 
+__make_figures_overall_withvax.R__ generates figures comparing fits from across runs (currently set to compare alpha/delta/non-VOIVOC trajectories and breakthrough/non-breakthrough infections).
+
+__save_figures_overall_withvax.R__ generates more figures comparing fits from across runs (currently set to compare alpha/delta/non-VOIVOC trajectories and breakthrough/non-breakthrough infections), and saves them.
+
+__makewhiskers_deltavax.R__ makes whisker plots for breakthrough vs. non-breakthrough infections subsetting to only delta infections. 
+
+__makewhiskers_vaxman.R__ makes whisker plots according to vaccine manufacturer (Pfizer-BioNTech or Johnson & Johnson/Janssen)
 
 
 All code is available under the GNU General Public License, version 3, included in this repository under the following terms: 
